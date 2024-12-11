@@ -83,7 +83,7 @@ def main() -> None:
     df = read_excel(file)
     links = parse_links(df)
     download_dir = os.getcwd()
-    output_file = os.path.join(download_dir, "output.txt")
+    output_file = os.path.join(download_dir, "output.xlsx")
     write_links(links, output_file)
 
 

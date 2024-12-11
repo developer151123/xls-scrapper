@@ -1,13 +1,21 @@
 import os
 import re
+from typing import NamedTuple
 
+import xlsxwriter
 from pandas import DataFrame
 
 # Регулярные выражения для поиска ссылок
 pattern_tme = r'((?:t\.me/(?:s/)?)([a-zA-Z0-9_]+)\b)'  # Паттерн для t.me и t.me/s
 pattern_at = r'(@([a-zA-Z0-9_]+)\b)'  # Паттерн для @
 
+class TelegramLink(NamedTuple):
+    match: str
+    justification: str
+    date: str
+
 def parse_links(df: DataFrame):
+    telegram_links = []
     unique_matches = set()
     rows = df.shape[0]
     for row in range(1, rows-1):
@@ -26,7 +34,7 @@ def parse_links(df: DataFrame):
                 else:
                     cleaned_match = match[1].rstrip('.,')  # Берём часть после t.me/ (вторую группу)
 
-                unique_matches.add(cleaned_match)  # Добавляем полное совпадение в множество
+                final_match = cleaned_match
 
                 # Проверяем, заканчивается ли совпадение на '_'
                 if cleaned_match.endswith('_'):
@@ -35,11 +43,14 @@ def parse_links(df: DataFrame):
                         next_line = content[i + 1]
                         first_word = next_line.split()[0] if next_line else ''  # Получаем первое слово
                         new_match = cleaned_match + first_word  # Объединяем
-                        unique_matches.discard(cleaned_match)  # Удаляем старый вариант
-                        unique_matches.add(new_match)  # Добавляем новый вариант
+                        final_match = new_match
+
+                if len(final_match) > 0:
+                    telegram_links.append(TelegramLink(final_match, df.iat[row,5], df.iat[row,7]))
 
             # Проверка на наличие слова "телеграм" или "telegram" не далее 15 символов слева от @
             for match in re.finditer(pattern_at, line):
+                final_match = ""
                 start_index = match.start()  # Начало совпадения
                 if start_index >= 15:  # Проверяем, чтобы не выходить за пределы строки
                     left_context = line[start_index - 15:start_index]  # Получаем 15 символов слева
@@ -50,7 +61,7 @@ def parse_links(df: DataFrame):
                 if 'телеграм' in left_context.lower() or 'telegram' in left_context.lower():
                     cleaned_match = match.group(0).rstrip('.,')  # Удаляем . и , в конце
                     cleaned_match = cleaned_match.lstrip('@')  # Убираем символ @
-                    unique_matches.add(cleaned_match)  # Добавляем полное совпадение в множество
+                    final_match = cleaned_match
 
                     # Проверяем, заканчивается ли совпадение на '_'
                     if cleaned_match.endswith('_'):
@@ -59,18 +70,34 @@ def parse_links(df: DataFrame):
                             next_line = content[i + 1]
                             first_word = next_line.split()[0] if next_line else ''  # Получаем первое слово
                             new_match = cleaned_match + first_word  # Объединяем
-                            unique_matches.discard(cleaned_match)  # Удаляем старый вариант
-                            unique_matches.add(new_match)  # Добавляем новый вариант
-    return unique_matches
+                            final_match = cleaned_match
 
-def write_links(matches, file_name):
+                if len(final_match) > 0:
+                    telegram_links.append(TelegramLink(final_match, df.iat[row,5], df.iat[row,7]))
+
+    return telegram_links
+
+def write_links(links, file_name):
     if os.path.exists(file_name):
         os.remove(file_name)
-    # Сохранение результата в output.txt с добавлением https://t.me/
-    with open(file_name, 'w', encoding='utf-8') as output_file:
-        for match in matches:
-            output_file.write(f'https://t.me/{match}\n')  # Добавляем префикс
+    workbook = xlsxwriter.Workbook(file_name)
+    worksheet = workbook.add_worksheet()
 
-    print(f"Найдено {len(matches)} уникальных совпадений. Результат сохранён в {file_name}")
+    worksheet.set_column('A:A', 100)
+    worksheet.set_column('B:B', 200)
+    worksheet.set_column('C:C', 50)
 
+    worksheet.write('A1', 'Kанал')
+    worksheet.write('B1', 'Решение')
+    worksheet.write('C1', 'Дата')
 
+    row = 1
+    for link in links:
+        worksheet.write(row, 0, f'https://t.me/{link.match}')
+        worksheet.write(row, 1, link.justification)
+        worksheet.write(row, 2, str(link.date)[:10])
+        row += 1
+
+    workbook.close()
+
+    print(f"Найдено {len(links)} уникальных совпадений. Результат сохранён в {file_name}")
