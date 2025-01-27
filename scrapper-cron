@@ -1,0 +1,1 @@
+* 1 * * * /app/start-scrapper.sh > /app/scrapper.log
